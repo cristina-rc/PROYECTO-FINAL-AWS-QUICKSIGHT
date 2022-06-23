@@ -1,0 +1,38 @@
+@font-face {
+font-family: "Raleway";
+src: url("../fuentes/Raleway-VariableFont_wght.otf");
+}
+
+#selectDashboard{
+    width:200px; 
+    text-align: center; 
+    visibility:hidden;
+}
+
+#DisplayParent{
+    height: 100%;
+    width: 100vw;
+    position: absolute;
+    background-color:#e9ecef;
+    overflow:hidden;
+}
+
+#DashboardContainer, #DisplayMessageContainer{
+    height: 90%;
+    width: 100vw;
+    position: absolute;
+    top:60px;
+    background-color:#e9ecef;
+    overflow:hidden;
+}   
+
+i{
+    font-size:24px;
+}
+
+iframe {border: 0;}
+
+body {
+    margin:0;
+    font-family: 'Raleway';
+}

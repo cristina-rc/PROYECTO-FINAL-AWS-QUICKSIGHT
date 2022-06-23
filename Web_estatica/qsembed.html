@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>    
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=yes">
+    <link rel="stylesheet" href="estilos/styles.css" />
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="icon" type="image/jpg" href="img/favicono.PNG"/>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/amazon-quicksight-embedding-sdk@1.18.0/dist/quicksight-embedding-js-sdk.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+    
+  
+    <script>    
+      //Definiremos una variable de datos, que cumplimentaremos con los correspondientes valores relativos a la URL de nuestra API Gateway, distribución de Cloudfront, 
+      //dominio y cliente de Cognito
+      var awsData = {
+          apiGatewayUrl:'https://htldxn8hh5.execute-api.us-east-1.amazonaws.com/produccion/embed',
+          staticPageUrl:'https://d2tez9zch495d6.cloudfront.net/qsembed.html',
+          cognitoDomainUrl:'https://qses951553814393.auth.us-east-1.amazoncognito.com',
+          cognitoClientId:'2qvgualrf1uucegodglu2r1uru',
+          dashboardInitialLoad:true,
+          dashboard:'',
+          debugMode: true
+      };
+      
+      $(document).ready(function () {        
+        //Una vez que la página se encuentra cargada, se invoca a la función getOpenIdToken para comprobar si hay un token disponible    
+      });
+
+      //Se encarga de buscar en la URL si existe un token de acceso, generado tras el sign-in de Cognito
+    	function getOpenIdToken(){
+      		writeDebugInfo('In getOpenIdToken func');
+      		//Comprobamos si existe el token en la URL
+      		var idToken = getParameterValues('id_token','#','&');
+      		writeDebugInfo(idToken)
+      		if (idToken ) {
+            writeDebugInfo('Token found');
+            window.location.hash='';
+            //En caso de que exista el token, obtendremos la información de Quicksight
+            getQuickSightInfo(idToken);            
+      		}else {
+            //En caso de que no se encuentre el token, se redirigirá al sign-in de Cognito
+      			writeDebugInfo('Token not found, Redirecting to Cognito');
+      			window.location.href = awsData.cognitoDomainUrl+'/login?client_id='+awsData.cognitoClientId+'&response_type=token&scope=email+openid+profile&redirect_uri='+awsData.staticPageUrl;
+          }          
+    	}
+  
+      //Si awsData.debugMode está seteado a true, imprimirá mensajes de logs en la consola
+      function writeDebugInfo(debugInfo) {
+        if (awsData.debugMode) {
+          console.log(debugInfo);
+        }
+      }
+  
+      //Recorta la parte de la URL relativa al token
+      function getParameterValues(param,slicer,delimiter) {
+        writeDebugInfo('In getParameterValues func');
+        var urlParms = window.location.href.slice(window.location.href.indexOf(slicer)+ slicer.length).split(delimiter);
+        for (var i = 0; i < urlParms.length; i++) {
+          var urlparm = urlParms[i].split('=');
+          if (urlparm[0].toLowerCase() === param) {
+            return decodeURIComponent(urlparm[1]);
+          }
+        }
+        return
+      }
+      
+      
+      //Realizará llamadas a nuestra API REST de API Gateway para obtener la información de QuickSight
+      function getQuickSightInfo(openIdToken) {
+        writeDebugInfo('In getQuickSightInfo func');
+
+        //Llamada a la API REST para obtener la URL del dashboard inicial (pasando el id del token que se encuentra autenticado, junto a los headers para evitar errores de CORS)
+        xht = new XMLHttpRequest();  
+        xht.addEventListener('readystatechange', manageReponseGetUrl, false);
+        xht.open('GET', awsData.apiGatewayUrl + '?mode=getUrl&openIdToken=' + openIdToken, true);
+        
+        xht.setRequestHeader("Access-Control-Allow-Origin", "*");
+        xht.setRequestHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+        xht.setRequestHeader("Access-Control-Allow-Headers", "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token");
+        xht.send(null);
+
+
+        //Llamada a la API REST para obtener el listado de dashboard a los que el usuario autenticado tiene acceso en ese momento (pasando el id del token que se encuentra autenticado)
+        xhr = new XMLHttpRequest(); 
+        xhr.addEventListener('readystatechange', manageReponseGetDashboards, false);
+        xhr.open('GET', awsData.apiGatewayUrl + '?mode=getDashboardList&openIdToken=' + openIdToken, true);
+        
+        xhr.setRequestHeader("Access-Control-Allow-Origin", "*");
+        xhr.setRequestHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+        xhr.setRequestHeader("Access-Control-Allow-Headers", "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token");
+        xhr.send(null);
+      }
+  
+      //Gestionaremos la respuesta para la llamada a la API REST "getUrl". La API REST devolverá una url de dashboard o de sesión, dependiendo de si el usuario posee un rol
+      //de READER o AUTHOR
+      function manageReponseGetUrl(event) {
+        if (event.target.readyState == 4 && event.target.status == 200) {
+          objetoRespuesta = event.target.responseText;
+          var datosJSON = JSON.parse(objetoRespuesta);
+          writeDebugInfo(datosJSON.DashboardEmbedUrl);
+          writeDebugInfo(datosJSON.SessionEmbedUrl);
+
+          //Procederemos a embeber el dashboard o la sesión resultantes en nuestro div/container
+          if(datosJSON.type == 'session'){
+            embedQuickSight('DashboardContainer', datosJSON.SessionEmbedUrl, 'session');
+          }else{
+            embedQuickSight('DashboardContainer', datosJSON.DashboardEmbedUrl, 'url');
+          }
+        }
+      }
+
+      //Gestionaremos la respuesta para la llamada a la API REST "GetDashboards"
+      function manageReponseGetDashboards(event) {
+        if (event.target.readyState == 4 && event.target.status == 200) {
+          objetoRespuesta = event.target.responseText;
+          var datosJSON = JSON.parse(objetoRespuesta);
+          writeDebugInfo(datosJSON.Dashboards);
+
+          //Cargaremos el listado de dashboards resultante de la llamada a la API REST
+          loadDashboardList(datosJSON.Dashboards);
+        }
+      }
+      
+      //Embebemos la url generada en la funcíón getQuicksightInfo, correspondiente al dashboard, o la sesión
+      function embedQuickSight(embedDiv, embedUrl, type) {
+        writeDebugInfo('In embedQuickSight func');
+        var containerDiv = document.getElementById(embedDiv);
+        writeDebugInfo(embedUrl);
+
+        //Si el tipo de la url es de sesión (consola embebida), usamos la función del SDK de QS denominada embedSession() para embeber la consola en el container (div) especificado
+        if(type == 'session'){
+          var params = {
+            url: embedUrl,
+            container: containerDiv,
+            width:"100%",
+            height:"100%"
+          };
+
+          //Cuando embebemos la sesión completa, ocultamos el mensaje informativo ("Cargando...") para que pueda mostrarse correctamente el contenedor donde se encuentra la consola embebida
+          $('#DisplayMessageContainer').css('visibility','hidden');
+          awsData.dashboard = QuickSightEmbedding.embedSession(params);
+          
+        //Si el tipo de url es 'dashboard'
+        }else{
+          var params = {
+            url: embedUrl,
+            container: containerDiv,
+            width:"100%",
+            height:"100%",
+            undoRedoDisabled: true, 
+            resetDisabled: true
+          };
+          
+          //Mostraremos el seleccionable con los dashboards cargados, para que el usuario pueda escoger el que desea visualizar
+          $('#selectDashboard').css('visibility','visible');
+          //La función embedDashboard incluída en el SDK de Quicksight se encarga de embeber el dashboard en un iframe(marco) dentro del container (div) especificado
+          awsData.dashboard = QuickSightEmbedding.embedDashboard(params);      
+        } 
+      }
+
+      //Carga el listado de dashboards a los que el usuario tiene acceso, dentro de options en un elemento select
+      function loadDashboardList(Dashboards) {
+        writeDebugInfo('In loadDashboardList func');
+
+        //Limpiaremos el select
+        $('#selectDashboard').empty();
+        //Añadiremos una opcion al select que incique al usuario que seleccione un dashboard
+        $('#selectDashboard').append($('<option></option>').val('non-existent-id').html('Seleccione un dashboard'));
+        //Para cada dashboard, se creará una opción dentro del select
+        $.each(Dashboards, function(index, dashboard) {
+          $('#selectDashboard').append($('<option></option>').val(dashboard.DashboardId).html(dashboard.Name));
+        });
+        if (Dashboards.length > 0) {
+           $('#DisplayMessage').html('Selecciona un dashboard para visualizarlo');
+        }
+        //Si el listado de dashboards del usuario es igual a cero (no se ha compartido ningún dashboard con él), se mostrará el siguiente mensaje
+        else {
+          $('#DisplayMessage').html('Comparte un dashboard con este usuario, o su grupo en Quicksight. Tras ello, recarga esta página');
+        }  
+      }
+      
+
+      function setVisibility(mode) {
+        writeDebugInfo('In setVisibility func : mode is '+mode);
+        
+        //Si es la primera vez que se selecciona uno de los dashboard del select, se eliminará la opción del dashboard inicial, utilizado para cargar la primera URL 
+        //en la llamada a la API getUrl
+        if (awsData.dashboardInitialLoad && mode == 'SelectDashboard') {
+          $('#selectDashboard option[value="non-existent-id"]').remove();
+          awsData.dashboardInitialLoad = false;
+          mode = 'Dashboard'
+        }
+        
+        if ( mode == 'Dashboard' && awsData.dashboardInitialLoad) {
+          mode = 'UninitializedDashboard';
+        }else if(mode == 'Dashboard' && !awsData.dashboardInitialLoad) {
+          mode = 'InitializedDashboard'
+        }
+        
+        writeDebugInfo('Derived mode is '+mode);
+
+        switch(mode){
+          //Si todavía no se ha inicializado ningún dashboard, se mostrará el div que contiene el mensaje informativo
+          case 'UninitializedDashboard':
+            $('#DisplayMessageContainer').css('visibility','visible');
+            $('#DashboardContainer').css('visibility','visible');
+            break;
+          //Si se ha inicializado algún dashboard, se ocultará el div que contiene el mensaje informativo
+          case 'InitializedDashboard':
+            $('#DisplayMessageContainer').css('visibility','hidden');
+            $('#DashboardContainer').css('visibility','visible');
+            break;
+         
+          default:
+            $('#DisplayMessageContainer').css('visibility','visible');
+            $('#DashboardContainer').css('visibility','hidden');
+            break;          
+        }        
+      }
+      
+      //Función que se encarga de cargar un dashboard seleccionado por el usuario
+      function selectDashboard(dashboardId) {
+        writeDebugInfo('In selectDashboard func');
+        //Si el dashboard seleccionado es diferente al de la carga inicial
+        if (dashboardId != 'non-existent-id') {
+          //La función navigateToDashboard del SDK de Quicksight nos permite generar el dashboard embebido a partir de un id sin necesidad de generar una nueva URL
+          awsData.dashboard.navigateToDashboard(dashboardId);
+
+          //Si se inicializa una dashboard por primera vez, se realizarán algunos cambios en la visibilidad de algunos de los elementos de la aplicación
+          if (awsData.dashboardInitialLoad) {
+            setTimeout(function(){setVisibility('SelectDashboard');}, 1000);
+          }
+        }
+      }
+      
+      //Función para realizar el sign-out de Cognito al pulsar el botón de salir
+      function signOut() {
+        writeDebugInfo('In signOut Function');
+        window.location.href = awsData.cognitoDomainUrl+'/logout?client_id='+awsData.cognitoClientId+'&logout_uri='+awsData.staticPageUrl;
+      }
+        
+    </script>
+    
+  </head>
+  <body>
+    <nav class="navbar navbar-light bg-secondary fixed-top" >
+      <a class="navbar-brand text-light" >
+        <img id="navbarLogo" src="img/logo.PNG" height="30px" alt="logo" loading="lazy">
+      </a>        
+      <ul id="NavDashboards" class="nav justify-content-center text-light">
+        <i class="fa">&#xf080;</i>
+        <li id="DashboardSelector" class="nav-item">
+          <select class="form-select form-select-lg text-light bg-secondary"  id="selectDashboard" onchange="selectDashboard($(this).val())")>
+          </select>
+        </li>
+      </ul>
+      <ul id="NavSignOut" class="nav d-flex justify-content-end" text-light">
+        <li class="nav-item">
+            <a id ="NavSignOut" class="nav-link text-light" href="#" onclick="signOut()"> <i class="fa">&#xf090;</i></a>
+        </li>
+      </ul>
+    </nav>
+    
+    <div id="DisplayParent" >
+      <div id="DashboardContainer" style="visibility:visible;">
+      </div>
+      <div id="DisplayMessageContainer" class="overflow-auto" style="visibility:visible">
+        <div class="jumbotron jumbotron-fluid col text-center" >
+          <div class="container" >
+            <h4 id="DisplayMessage" class="text-secondary">Cargando...</h4>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
