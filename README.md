@@ -10,6 +10,7 @@ perteneciente a AWS.
 Los servicios de AWS utilizados en la arquitectura, son:
 
 - Amazon S3
+- Amazon Cloudfront
 - Amazon API Gateway
 - AWS Lambda
 - Amazon Cognito
